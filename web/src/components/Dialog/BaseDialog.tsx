@@ -1,12 +1,17 @@
-import { useEffect } from "react";
+import { CssVarsProvider } from "@mui/joy";
+import clsx from "clsx";
+import { useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { Provider } from "react-redux";
-import { ANIMATION_DURATION } from "../../helpers/consts";
-import store from "../../store";
-import "../../less/base-dialog.less";
+import CommonContextProvider from "@/layouts/CommonContextProvider";
+import store from "@/store";
+import { useDialogStore } from "@/store/module";
+import theme from "@/theme";
+import "@/less/base-dialog.less";
 
 interface DialogConfig {
-  className: string;
+  dialogName: string;
+  className?: string;
   clickSpaceDestroy?: boolean;
 }
 
@@ -15,12 +20,18 @@ interface Props extends DialogConfig, DialogProps {
 }
 
 const BaseDialog: React.FC<Props> = (props: Props) => {
-  const { children, className, clickSpaceDestroy, destroy } = props;
+  const { children, className, clickSpaceDestroy, dialogName, destroy } = props;
+  const dialogStore = useDialogStore();
+  const dialogContainerRef = useRef<HTMLDivElement>(null);
+  const dialogIndex = dialogStore.state.dialogStack.findIndex((item) => item === dialogName);
 
   useEffect(() => {
+    dialogStore.pushDialogStack(dialogName);
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.code === "Escape") {
-        destroy();
+        if (dialogName === dialogStore.topDialogStack()) {
+          destroy();
+        }
       }
     };
 
@@ -28,8 +39,15 @@ const BaseDialog: React.FC<Props> = (props: Props) => {
 
     return () => {
       document.body.removeEventListener("keydown", handleKeyDown);
+      dialogStore.removeDialog(dialogName);
     };
   }, []);
+
+  useEffect(() => {
+    if (dialogIndex > 0 && dialogContainerRef.current) {
+      dialogContainerRef.current.style.marginTop = `${dialogIndex * 16}px`;
+    }
+  }, [dialogIndex]);
 
   const handleSpaceClicked = () => {
     if (clickSpaceDestroy) {
@@ -38,8 +56,8 @@ const BaseDialog: React.FC<Props> = (props: Props) => {
   };
 
   return (
-    <div className={`dialog-wrapper ${className}`} onClick={handleSpaceClicked}>
-      <div className="dialog-container" onClick={(e) => e.stopPropagation()}>
+    <div className={clsx("dialog-wrapper", className)} onMouseDown={handleSpaceClicked}>
+      <div ref={dialogContainerRef} className={clsx("dialog-container")} onMouseDown={(e) => e.stopPropagation()}>
         {children}
       </div>
     </div>
@@ -49,24 +67,18 @@ const BaseDialog: React.FC<Props> = (props: Props) => {
 export function generateDialog<T extends DialogProps>(
   config: DialogConfig,
   DialogComponent: React.FC<T>,
-  props?: Omit<T, "destroy">
+  props?: Omit<T, "destroy">,
 ): DialogCallback {
   const tempDiv = document.createElement("div");
   const dialog = createRoot(tempDiv);
   document.body.append(tempDiv);
-
-  setTimeout(() => {
-    tempDiv.firstElementChild?.classList.add("showup");
-  }, 0);
+  document.body.style.overflow = "hidden";
 
   const cbs: DialogCallback = {
     destroy: () => {
-      tempDiv.firstElementChild?.classList.remove("showup");
-      tempDiv.firstElementChild?.classList.add("showoff");
-      setTimeout(() => {
-        dialog.unmount();
-        tempDiv.remove();
-      }, ANIMATION_DURATION);
+      document.body.style.removeProperty("overflow");
+      dialog.unmount();
+      tempDiv.remove();
     },
   };
 
@@ -77,9 +89,13 @@ export function generateDialog<T extends DialogProps>(
 
   const Fragment = (
     <Provider store={store}>
-      <BaseDialog destroy={cbs.destroy} clickSpaceDestroy={true} {...config}>
-        <DialogComponent {...dialogProps} />
-      </BaseDialog>
+      <CssVarsProvider theme={theme}>
+        <CommonContextProvider>
+          <BaseDialog destroy={cbs.destroy} clickSpaceDestroy={true} {...config}>
+            <DialogComponent {...dialogProps} />
+          </BaseDialog>
+        </CommonContextProvider>
+      </CssVarsProvider>
     </Provider>
   );
 
