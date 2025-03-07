@@ -1,104 +1,85 @@
-import { useTranslation } from "react-i18next";
-import Switch from "@mui/joy/Switch";
-import { globalService, userService } from "../../services";
-import { useAppSelector } from "../../store";
-import {
-  VISIBILITY_SELECTOR_ITEMS,
-  MEMO_DISPLAY_TS_OPTION_SELECTOR_ITEMS,
-  SETTING_IS_FOLDING_ENABLED_KEY,
-  IS_FOLDING_ENABLED_DEFAULT_VALUE,
-} from "../../helpers/consts";
-import useLocalStorage from "../../hooks/useLocalStorage";
-import Selector from "../common/Selector";
-import "../../less/settings/preferences-section.less";
+import { Divider, Option, Select } from "@mui/joy";
+import { observer } from "mobx-react-lite";
+import { userStore } from "@/store/v2";
+import { Visibility } from "@/types/proto/api/v1/memo_service";
+import { UserSetting } from "@/types/proto/api/v1/user_service";
+import { useTranslate } from "@/utils/i18n";
+import { convertVisibilityFromString, convertVisibilityToString } from "@/utils/memo";
+import AppearanceSelect from "../AppearanceSelect";
+import LocaleSelect from "../LocaleSelect";
+import VisibilityIcon from "../VisibilityIcon";
+import WebhookSection from "./WebhookSection";
 
-const localeSelectorItems = [
-  {
-    text: "English",
-    value: "en",
-  },
-  {
-    text: "中文",
-    value: "zh",
-  },
-  {
-    text: "Tiếng Việt",
-    value: "vi",
-  },
-  {
-    text: "French",
-    value: "fr",
-  },
-];
+const PreferencesSection = observer(() => {
+  const t = useTranslate();
+  const setting = userStore.state.userSetting as UserSetting;
 
-const PreferencesSection = () => {
-  const { t } = useTranslation();
-  const { setting } = useAppSelector((state) => state.user.user as User);
-  const visibilitySelectorItems = VISIBILITY_SELECTOR_ITEMS.map((item) => {
-    return {
-      value: item.value,
-      text: t(`memo.visibility.${item.text.toLowerCase()}`),
-    };
-  });
+  const handleLocaleSelectChange = async (locale: Locale) => {
+    await userStore.updateUserSetting(
+      {
+        locale,
+      },
+      ["locale"],
+    );
+  };
 
-  const memoDisplayTsOptionSelectorItems = MEMO_DISPLAY_TS_OPTION_SELECTOR_ITEMS.map((item) => {
-    return {
-      value: item.value,
-      text: t(`setting.preference-section.${item.value}`),
-    };
-  });
-
-  const [isFoldingEnabled, setIsFoldingEnabled] = useLocalStorage(SETTING_IS_FOLDING_ENABLED_KEY, IS_FOLDING_ENABLED_DEFAULT_VALUE);
-
-  const handleLocaleChanged = async (value: string) => {
-    await userService.upsertUserSetting("locale", value);
-    globalService.setLocale(value as Locale);
+  const handleAppearanceSelectChange = async (appearance: Appearance) => {
+    await userStore.updateUserSetting(
+      {
+        appearance,
+      },
+      ["appearance"],
+    );
   };
 
   const handleDefaultMemoVisibilityChanged = async (value: string) => {
-    await userService.upsertUserSetting("memoVisibility", value);
-  };
-
-  const handleMemoDisplayTsOptionChanged = async (value: string) => {
-    await userService.upsertUserSetting("memoDisplayTsOption", value);
-  };
-
-  const handleIsFoldingEnabledChanged = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setIsFoldingEnabled(event.target.checked);
+    await userStore.updateUserSetting(
+      {
+        memoVisibility: value,
+      },
+      ["memo_visibility"],
+    );
   };
 
   return (
-    <div className="section-container preferences-section-container">
-      <p className="title-text">{t("common.basic")}</p>
-      <label className="form-label selector">
-        <span className="normal-text">{t("common.language")}</span>
-        <Selector className="ml-2 w-32" value={setting.locale} dataSource={localeSelectorItems} handleValueChanged={handleLocaleChanged} />
-      </label>
-      <p className="title-text">{t("setting.preference")}</p>
-      <label className="form-label selector">
-        <span className="normal-text">{t("setting.preference-section.default-memo-visibility")}</span>
-        <Selector
-          className="ml-2 w-32"
+    <div className="w-full flex flex-col gap-2 pt-2 pb-4">
+      <p className="font-medium text-gray-700 dark:text-gray-500">{t("common.basic")}</p>
+      <div className="w-full flex flex-row justify-between items-center">
+        <span>{t("common.language")}</span>
+        <LocaleSelect value={setting.locale} onChange={handleLocaleSelectChange} />
+      </div>
+      <div className="w-full flex flex-row justify-between items-center">
+        <span>{t("setting.preference-section.theme")}</span>
+        <AppearanceSelect value={setting.appearance as Appearance} onChange={handleAppearanceSelectChange} />
+      </div>
+      <p className="font-medium text-gray-700 dark:text-gray-500">{t("setting.preference")}</p>
+      <div className="w-full flex flex-row justify-between items-center">
+        <span className="truncate">{t("setting.preference-section.default-memo-visibility")}</span>
+        <Select
+          className="!min-w-fit"
           value={setting.memoVisibility}
-          dataSource={visibilitySelectorItems}
-          handleValueChanged={handleDefaultMemoVisibilityChanged}
-        />
-      </label>
-      <label className="form-label selector">
-        <span className="normal-text">{t("setting.preference-section.default-memo-sort-option")}</span>
-        <Selector
-          className="ml-2 w-32"
-          value={setting.memoDisplayTsOption}
-          dataSource={memoDisplayTsOptionSelectorItems}
-          handleValueChanged={handleMemoDisplayTsOptionChanged}
-        />
-      </label>
-      <label className="form-label selector">
-        <span className="normal-text">{t("setting.preference-section.enable-folding-memo")}</span>
-        <Switch className="ml-2" checked={isFoldingEnabled} onChange={handleIsFoldingEnabledChanged} />
-      </label>
+          startDecorator={<VisibilityIcon visibility={convertVisibilityFromString(setting.memoVisibility)} />}
+          onChange={(_, visibility) => {
+            if (visibility) {
+              handleDefaultMemoVisibilityChanged(visibility);
+            }
+          }}
+        >
+          {[Visibility.PRIVATE, Visibility.PROTECTED, Visibility.PUBLIC]
+            .map((v) => convertVisibilityToString(v))
+            .map((item) => (
+              <Option key={item} value={item} className="whitespace-nowrap">
+                {t(`memo.visibility.${item.toLowerCase() as Lowercase<typeof item>}`)}
+              </Option>
+            ))}
+        </Select>
+      </div>
+
+      <Divider className="!my-3" />
+
+      <WebhookSection />
     </div>
   );
-};
+});
 
 export default PreferencesSection;
