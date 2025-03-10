@@ -1,69 +1,69 @@
-import { useEffect } from "react";
-import { useTranslation } from "react-i18next";
-import { useLocation } from "react-router-dom";
-import { globalService, userService } from "../services";
-import { useAppSelector } from "../store";
-import toastHelper from "../components/Toast";
-import Sidebar from "../components/Sidebar";
-import MemosHeader from "../components/MemosHeader";
-import MemoEditor from "../components/MemoEditor";
-import MemoFilter from "../components/MemoFilter";
-import MemoList from "../components/MemoList";
-import UpdateVersionBanner from "../components/UpdateVersionBanner";
-import "../less/home.less";
+import dayjs from "dayjs";
+import { observer } from "mobx-react-lite";
+import { useMemo } from "react";
+import MemoView from "@/components/MemoView";
+import PagedMemoList from "@/components/PagedMemoList";
+import useCurrentUser from "@/hooks/useCurrentUser";
+import { useMemoFilterStore } from "@/store/v1";
+import { viewStore, userStore } from "@/store/v2";
+import { Direction, State } from "@/types/proto/api/v1/common";
+import { Memo } from "@/types/proto/api/v1/memo_service";
 
-function Home() {
-  const { t } = useTranslation();
-  const location = useLocation();
-  const user = useAppSelector((state) => state.user.user);
+const Home = observer(() => {
+  const user = useCurrentUser();
+  const memoFilterStore = useMemoFilterStore();
+  const selectedShortcut = userStore.state.shortcuts.find((shortcut) => shortcut.id === memoFilterStore.shortcut);
 
-  useEffect(() => {
-    const { owner } = userService.getState();
-
-    if (userService.isVisitorMode()) {
-      if (!owner) {
-        toastHelper.error(t("message.user-not-found"));
+  const memoListFilter = useMemo(() => {
+    const conditions = [];
+    const contentSearch: string[] = [];
+    const tagSearch: string[] = [];
+    for (const filter of memoFilterStore.filters) {
+      if (filter.factor === "contentSearch") {
+        contentSearch.push(`"${filter.value}"`);
+      } else if (filter.factor === "tagSearch") {
+        tagSearch.push(`"${filter.value}"`);
+      } else if (filter.factor === "property.hasLink") {
+        conditions.push(`has_link == true`);
+      } else if (filter.factor === "property.hasTaskList") {
+        conditions.push(`has_task_list == true`);
+      } else if (filter.factor === "property.hasCode") {
+        conditions.push(`has_code == true`);
+      } else if (filter.factor === "displayTime") {
+        const filterDate = new Date(filter.value);
+        const filterUtcTimestamp = filterDate.getTime() + filterDate.getTimezoneOffset() * 60 * 1000;
+        const timestampAfter = filterUtcTimestamp / 1000;
+        conditions.push(`display_time_after == ${timestampAfter}`);
+        conditions.push(`display_time_before == ${timestampAfter + 60 * 60 * 24}`);
       }
     }
-  }, [location]);
-
-  useEffect(() => {
-    if (user?.setting.locale) {
-      globalService.setLocale(user.setting.locale);
+    if (contentSearch.length > 0) {
+      conditions.push(`content_search == [${contentSearch.join(", ")}]`);
     }
-  }, [user?.setting.locale]);
+    if (tagSearch.length > 0) {
+      conditions.push(`tag_search == [${tagSearch.join(", ")}]`);
+    }
+    return conditions.join(" && ");
+  }, [user, memoFilterStore.filters, viewStore.state.orderByTimeAsc]);
 
   return (
-    <section className="page-wrapper home">
-      <div className="banner-wrapper">
-        <UpdateVersionBanner />
-      </div>
-      <div className="page-container">
-        <Sidebar />
-        <main className="memos-wrapper">
-          <div className="memos-editor-wrapper">
-            <MemosHeader />
-            {!userService.isVisitorMode() && <MemoEditor />}
-            <MemoFilter />
-          </div>
-          <MemoList />
-          {userService.isVisitorMode() && (
-            <div className="addtion-btn-container">
-              {user ? (
-                <button className="btn" onClick={() => (window.location.href = "/")}>
-                  <span className="icon">🏠</span> {t("common.back-to-home")}
-                </button>
-              ) : (
-                <button className="btn" onClick={() => (window.location.href = "/auth")}>
-                  <span className="icon">👉</span> {t("common.sign-in")}
-                </button>
-              )}
-            </div>
-          )}
-        </main>
-      </div>
-    </section>
+    <PagedMemoList
+      renderer={(memo: Memo) => <MemoView key={`${memo.name}-${memo.displayTime}`} memo={memo} showVisibility showPinned compact />}
+      listSort={(memos: Memo[]) =>
+        memos
+          .filter((memo) => memo.state === State.NORMAL)
+          .sort((a, b) =>
+            viewStore.state.orderByTimeAsc
+              ? dayjs(a.displayTime).unix() - dayjs(b.displayTime).unix()
+              : dayjs(b.displayTime).unix() - dayjs(a.displayTime).unix(),
+          )
+      }
+      owner={user.name}
+      direction={viewStore.state.orderByTimeAsc ? Direction.ASC : Direction.DESC}
+      filter={selectedShortcut?.filter || ""}
+      oldFilter={memoListFilter}
+    />
   );
-}
+});
 
 export default Home;
